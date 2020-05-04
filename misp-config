@@ -21,6 +21,21 @@ if ($#ARGV < 0) {
     exit;
 }
 
+sub replace_inplace_content {
+    my ($filename, $buftoreplace, $replacement) = @_;
+
+    open my $fp, "<:encoding(UTF-8)", $filename or die "unable to open $filename!";
+    local $/ = undef;
+    my $data = <$fp>;
+    close $fp;
+
+    $data =~ s/$buftoreplace/$replacement/g;
+    
+    open $fp, ">:encoding(UTF-8)", $filename or die "Could not write to '$filename'";
+    print $fp $data;
+    close $fp;
+}
+
 while (my ($i, $arg) = each @ARGV) {
     if ($arg eq "--user") {
 	$misp_user = $ARGV[$i+1];
@@ -54,6 +69,13 @@ if ($create) {
     my $misp_config_path = "$misp_config_path/misp.conf.d";
     make_path($misp_config_path);
 
+    unless(-e "$misp_config_path/Internal.conf") {
+	open(my $internalfh, ">", "$misp_config_path/Internal.conf");
+	print $internalfh "redis_host localhost\n";
+	close $internalfh;
+    }
+
+    die "foo";
     my $settings = `sudo -u $misp_user $misp_path/app/Console/cake admin getSetting all`;
     my @lines = split("\n",$settings);
     my $value = 0;
@@ -127,24 +149,35 @@ if ($apply) {
     
     foreach my $fp (glob("$misp_config_path/*.conf")) {
 	my $category = substr($fp, length($misp_config_path)+1, -5);
-	print "$category\n";
+	my $cake_config = $category eq "Internal" ? 0 : 1;
+	# print "$category:$cake_config\n";
 	#	print "$fp\n";
 	open(my $fh, "<", $fp) or die "$!";
 	while (my $line = <$fh>) {
 	    chomp $line;
 	    $line =~ /(\S+) (.*)/;
 	    my $key = "";
-	    
+
 	    if ($category eq "Debug") {
+	    	# The Debug category does not... have a category
 		$key = $1;
+	    } elsif ($category eq "Internal") {
+		# Internal means we are patching portions of the code to configure
+		if ($1 eq "redis_host") {
+		    replace_inplace_content("$misp_path/app/Lib/Tools/PubSubTool.php", "localhost", $2);
+		    replace_inplace_content("$misp_path/app/Plugin/CakeResque/Config/config.php", "localhost", $2);
+		}
 	    } else {
 		$key = "$category.$1";
 	    }
 
-	    system("sudo -u $misp_user $misp_path/app/Console/cake admin setSetting $key $2");
+	    if ($cake_config) {
+		system("sudo -u $misp_user $misp_path/app/Console/cake admin setSetting $key $2");
+	    }
 	    
 	}
 	close($fh);
     }
 
 }
+
