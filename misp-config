@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+my $misp_user="www-data";
+my $misp_path="/usr/share/misp";
+my $misp_config="/etc/misp/misp.config";
+my $prefix="";
+my $create=0;
+my $apply=0;
+
+if ($#ARGV < 0) {
+    print "\nUsage: misp-config --user www-data
+            \t   --misp-path /usr/share/misp
+            \t   --prefix /usr/local
+            \t   --apply: Applies configuration from $misp_config
+            \t   --create: Create configuration from all available options\n\n";
+    exit;
+}
+
+while (my ($i, $arg) = each @ARGV) {
+    if ($arg eq "--user") {
+	$misp_user = $ARGV[$i+1];
+    }
+    if ($arg eq "--misp-path") {
+	$misp_path = $ARGV[$i+1];
+    }
+    if ($arg eq "--prefix") {
+	$prefix = $ARGV[$i+1];
+    }
+    if ($arg eq "--create") {
+	$create = 1;
+    }
+    if ($arg eq "--apply") {
+	$apply = 1;
+    }    
+}
+
+if ( ! $apply && ! $create ) {
+    print "Argument missing: Please use either --apply or --create.\n";
+    exit;
+}
+
+if ( $apply && $create ) {
+    print "Argument error: Cannot use both --apply and --create.\n";
+    exit;
+}
+
+if ($create) {
+#    my $settings = `sudo -u $misp_user $misp_path/app/Console/cake admin getSetting all`;
+    my $settings = `cat all-settings`;
+    my @lines = split("\n",$settings);
+    my $value = 0;
+    my $setting = 0;
+    foreach(@lines) {	
+	if ($_ =~ m/\"value\": (.*)/) {
+	    $value = substr $1, 0, -1;
+	}
+	if ($_ =~ m/\"setting\": \"(.*)\"/) {
+	    $setting = $1;
+	}
+	if ($value && $setting) {
+	    print "$setting -> $value\n";
+	    $value = 0;
+	    $setting = 0;
+	}
+    }
+}
+
+if ($apply) {
+    open(my $fh, "<", $misp_config) or die "$!";
+    
+    while (my $line = <$fh>) {
+	chomp $line;
+	$line =~ /(\S+) (.*)/;
+	
+	system("sudo -u $misp_user $misp_path/app/Console/cake admin setSetting $1 $2");
+    }
+
+close($fh);
+
+}
